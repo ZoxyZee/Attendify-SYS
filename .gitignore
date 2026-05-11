@@ -1,0 +1,35 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+kiosk-app/node_modules/
+
+# Python
+.venv/
+.venv*/
+python-backend/.venv/
+python-backend/.venv*/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Build output
+dist/
+kiosk-app/dist/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.expo/
+kiosk-app/.expo/

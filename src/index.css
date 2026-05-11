@@ -1,0 +1,54 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Sora:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: "Sora", "IBM Plex Sans", sans-serif;
+  }
+
+  body {
+    @apply bg-surface text-slate-900 antialiased transition-colors duration-300 dark:bg-slate-950 dark:text-slate-100;
+    background-image:
+      radial-gradient(circle at top left, rgba(79, 70, 229, 0.12), transparent 28%),
+      radial-gradient(circle at 90% 10%, rgba(14, 165, 233, 0.1), transparent 20%);
+    background-attachment: fixed;
+  }
+
+  * {
+    @apply border-slate-200 dark:border-slate-800;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply rounded-3xl border border-white/60 bg-white/85 shadow-soft backdrop-blur-xl dark:border-white/5 dark:bg-slate-900/80;
+  }
+
+  .page-shell {
+    @apply space-y-6;
+  }
+
+  .page-heading {
+    @apply text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50;
+  }
+
+  .page-subheading {
+    @apply text-sm text-slate-500 dark:text-slate-400;
+  }
+
+  .input {
+    @apply w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-primary focus:ring-4 focus:ring-indigo-100 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-50 dark:focus:ring-indigo-950;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-2xl bg-primary px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-indigo-500/25 transition hover:-translate-y-0.5 hover:bg-indigo-500;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800;
+  }
+
+}
