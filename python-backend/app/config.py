@@ -13,6 +13,10 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    @property
+    def allowed_client_urls(self) -> list[str]:
+        return [origin.strip() for origin in self.client_url.split(",") if origin.strip()]
+
 settings = Settings()
 
     
