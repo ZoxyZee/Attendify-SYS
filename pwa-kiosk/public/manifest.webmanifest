@@ -1,0 +1,19 @@
+{
+  "name": "Attendify PWA Kiosk",
+  "short_name": "Attendify",
+  "description": "Fast one-tap attendance kiosk connected to the Attendify dashboard.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#050816",
+  "theme_color": "#050816",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
