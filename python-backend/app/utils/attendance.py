@@ -1,15 +1,14 @@
 from datetime import datetime, timedelta
 
 from ..database import db
+from .time import ist_day_range
 
 
 DUPLICATE_WINDOW_MS = 60 * 1000
 
 
 def get_day_range(timestamp: datetime) -> tuple[datetime, datetime]:
-    start = timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-    end = timestamp.replace(hour=23, minute=59, second=59, microsecond=999000)
-    return start, end
+    return ist_day_range(timestamp)
 
 
 def resolve_attendance_type_for_day(company_id: str, employee_id: str, timestamp: datetime) -> str | None:

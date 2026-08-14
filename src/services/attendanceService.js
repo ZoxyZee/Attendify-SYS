@@ -25,3 +25,12 @@ export const markWebAttendance = async ({ employee_id, timestamp = new Date().to
   });
   return response.data;
 };
+
+export const markPwaAttendance = async ({ employee_id, device_id = "pwa-kiosk", timestamp = new Date().toISOString() }) => {
+  const response = await api.post("/attendance/mark-web", {
+    employee_id,
+    device_id,
+    timestamp
+  });
+  return response.data;
+};

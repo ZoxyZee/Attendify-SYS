@@ -8,6 +8,7 @@ import DevicesPage from "./pages/Devices";
 import EmployeesPage from "./pages/Employees";
 import FaceRegistryPage from "./pages/FaceRegistry";
 import LoginPage from "./pages/Login";
+import PwaKioskPage from "./pages/PwaKiosk";
 import ReportsPage from "./pages/Reports";
 import SettingsPage from "./pages/Settings";
 
@@ -28,6 +29,7 @@ function App() {
         <Route path="employees" element={<EmployeesPage />} />
         <Route path="faces" element={<FaceRegistryPage />} />
         <Route path="attendance" element={<AttendancePage />} />
+        <Route path="kiosk" element={<PwaKioskPage />} />
         <Route path="devices" element={<DevicesPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="settings" element={<SettingsPage />} />

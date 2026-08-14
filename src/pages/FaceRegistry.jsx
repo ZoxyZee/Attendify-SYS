@@ -8,10 +8,10 @@ import StatPill from "../components/StatPill";
 import Table from "../components/Table";
 import WebcamCapture from "../components/WebcamCapture";
 import { fetchEmployees, updateEmployee } from "../services/employeeService";
-import { extractFaceEmbedding } from "../services/recognitionService";
+import { createFacePhotoVector } from "../services/faceMatchService";
 
 const hasFaceProfile = (employee) =>
-  Array.isArray(employee.face_embeddings) && employee.face_embeddings.length > 0;
+  Boolean(employee.face_image_base64 || (Array.isArray(employee.face_match_vector) && employee.face_match_vector.length));
 
 function FaceRegistryPage() {
   const [employees, setEmployees] = useState([]);
@@ -75,20 +75,17 @@ function FaceRegistryPage() {
         throw new Error("Capture an employee photo before saving the face profile.");
       }
 
-      setCaptureMessage("Extracting face profile...");
-      const extraction = await extractFaceEmbedding(capturedImage);
-      const previousEmbeddings = Array.isArray(selectedEmployee.face_embeddings)
-        ? selectedEmployee.face_embeddings
-        : [];
-      const nextEmbeddings = [extraction.embedding, ...previousEmbeddings].slice(0, 5);
+      setCaptureMessage("Saving face profile...");
+      const faceImageBase64 = capturedImage.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
 
       await updateEmployee({
         employee_id: selectedEmployee.employee_id,
         face_label: faceLabel.trim(),
-        face_embedding: extraction.embedding,
-        face_embeddings: nextEmbeddings,
-        face_image_base64: capturedImage.replace(/^data:image\/[a-zA-Z]+;base64,/, ""),
-        embedding_engine: extraction.engine || "remote",
+        face_embedding: [],
+        face_embeddings: [],
+        face_image_base64: faceImageBase64,
+        face_match_vector: createFacePhotoVector(faceImageBase64),
+        embedding_engine: "face-photo",
         face_registered_at: new Date().toISOString()
       });
       setModalOpen(false);

@@ -20,7 +20,9 @@ import { Bar, Line } from "react-chartjs-2";
 
 import Card from "../components/Card";
 import Loader from "../components/Loader";
+import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { fetchDashboardSummary } from "../services/dashboardService";
+import { subscribeAttendanceUpdates } from "../services/realtimeService";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler);
 
@@ -29,20 +31,32 @@ function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    const loadDashboard = async () => {
-      try {
-        const response = await fetchDashboardSummary();
-        setSummary(response);
-      } catch (loadError) {
+  const loadDashboard = async ({ silent = false } = {}) => {
+    try {
+      const response = await fetchDashboardSummary();
+      setSummary(response);
+      setError("");
+    } catch (loadError) {
+      if (!silent) {
         setError(loadError.message);
-      } finally {
+      }
+    } finally {
+      if (!silent) {
         setLoading(false);
       }
-    };
+    }
+  };
 
+  useEffect(() => {
     loadDashboard();
   }, []);
+
+  useLiveRefresh(() => loadDashboard({ silent: true }), [], 2000);
+
+  useEffect(
+    () => subscribeAttendanceUpdates(() => loadDashboard({ silent: true })),
+    []
+  );
 
   if (loading) {
     return <Loader label="Loading dashboard insights" />;

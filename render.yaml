@@ -1,13 +1,11 @@
 services:
   - type: web
     name: attendify-backend
-    runtime: python
-    rootDir: python-backend
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    runtime: node
+    rootDir: node-backend
+    buildCommand: "npm install"
+    startCommand: "npm start"
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.12.6
       - key: NODE_ENV
         value: production
       - key: MONGODB_URI
@@ -18,7 +16,3 @@ services:
         generateValue: true
       - key: JWT_EXPIRES_IN_DAYS
         value: 30
-      - key: RATE_LIMIT_TIMES
-        value: 200
-      - key: RATE_LIMIT_SECONDS
-        value: 900

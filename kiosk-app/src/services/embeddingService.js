@@ -73,6 +73,20 @@ export const loadMobileFaceNetModel = async () => {
 
 export const decodeBase64Image = (base64) => tfReactNative.decodeJpeg(toByteArray(base64));
 
+export const resizeImageForRecognition = (imageTensor, maxSide = 640) => {
+  const [height, width] = imageTensor.shape;
+  const largestSide = Math.max(height, width);
+
+  if (!largestSide || largestSide <= maxSide) {
+    return imageTensor;
+  }
+
+  const scale = maxSide / largestSide;
+  const nextHeight = Math.max(1, Math.round(height * scale));
+  const nextWidth = Math.max(1, Math.round(width * scale));
+  return tf.image.resizeBilinear(imageTensor, [nextHeight, nextWidth], true).toInt();
+};
+
 export const selectFace = (predictions) => {
   if (!predictions?.length) {
     throw new Error("No face detected. Please center your face in the guide.");

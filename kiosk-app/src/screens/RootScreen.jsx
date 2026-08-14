@@ -11,7 +11,7 @@ import PinUnlockModal from "../components/PinUnlockModal";
 import SuccessOverlay from "../components/SuccessOverlay";
 import { useKiosk } from "../context/KioskContext";
 import { useScanner } from "../hooks/useScanner";
-import { averageEmbeddings, extractFaceEmbedding } from "../services/recognitionService";
+import { averageFacePhotoVectors, createFacePhotoVector } from "../services/faceMatchService";
 
 function RootScreen() {
   const insets = useSafeAreaInsets();
@@ -112,18 +112,30 @@ function RootScreen() {
       setCaptureBusy(true);
       setCaptureError("");
 
-      const photo = await cameraRef.current.takePictureAsync({
-        base64: true,
-        exif: false
-      });
+      const samples = [];
+      const remainingSamples = Math.max(0, 5 - registrationSamples.length);
 
-      if (!photo?.base64) {
-        throw new Error("Camera did not return image data. Tap capture again.");
+      for (let index = 0; index < remainingSamples; index += 1) {
+        const photo = await cameraRef.current.takePictureAsync({
+          base64: true,
+          exif: false,
+          quality: 0.45,
+          skipProcessing: true
+        });
+
+        if (!photo?.base64) {
+          throw new Error("Camera did not return image data. Tap capture again.");
+        }
+
+        samples.push({
+          base64: photo.base64,
+          faceVector: createFacePhotoVector(photo.base64),
+          uri: photo.uri || `capture-${Date.now()}-${index}`
+        });
       }
 
-      const { embedding, engine } = await extractFaceEmbedding({ base64: photo.base64, settings });
       setRegistrationSamples((current) =>
-        [...current, { embedding, engine, uri: photo.uri || `capture-${Date.now()}` }].slice(0, 5)
+        [...current, ...samples].slice(0, 5)
       );
     } catch (error) {
       setCaptureError(error.message);
@@ -153,16 +165,18 @@ function RootScreen() {
       return;
     }
 
-    const embeddings = registrationSamples.slice(0, 5).map((sample) => sample.embedding);
-    const face_embedding = averageEmbeddings(embeddings);
-    const embedding_engine = registrationSamples[0]?.engine || null;
+    const faceVectors = registrationSamples.slice(0, 5).map((sample) => sample.faceVector);
+    const face_match_vector = averageFacePhotoVectors(faceVectors);
+    const face_image_base64 = registrationSamples[0]?.base64 || "";
 
     await registerEmployee({
       ...employeeForm,
       face_label: employeeForm.face_label || employeeForm.employee_id,
-      embeddings,
-      face_embedding,
-      embedding_engine,
+      embeddings: [],
+      face_embedding: [],
+      face_image_base64,
+      face_match_vector,
+      embedding_engine: "face-photo",
       embedding_updated_at: new Date().toISOString()
     });
 
@@ -302,7 +316,9 @@ function RootScreen() {
             <View className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
               <View
                 className="h-full rounded-full bg-indigo-400"
-                style={{ width: `${isSessionActive ? 45 : 100}%` }}
+                style={{
+                  width: `${isSessionActive ? Math.max(0, Math.min(100, (secondsRemaining / 15) * 100)) : 100}%`
+                }}
               />
             </View>
             <View className="mt-3 flex-row items-center justify-between">
@@ -311,7 +327,7 @@ function RootScreen() {
               </Text>
               <View className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5">
                 <Text className="text-[10px] font-semibold uppercase tracking-[1.8px] text-slate-200">
-                  Touch and go
+                  {isSessionActive ? `${secondsRemaining}s left` : "Touch and go"}
                 </Text>
               </View>
             </View>

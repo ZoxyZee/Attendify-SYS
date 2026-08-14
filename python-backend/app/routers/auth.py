@@ -1,9 +1,9 @@
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..database import db
-from ..dependencies import sanitize_user, serialize_document
+from ..dependencies import get_current_user, sanitize_user, serialize_document
 from ..schemas import LoginRequest, RegisterCompanyRequest
 from ..security import create_access_token, hash_password, verify_password
 
@@ -81,5 +81,16 @@ def login(payload: LoginRequest):
             "token": token,
             "company_id": user["company_id"],
             "user": sanitize_user(user)
+        }
+    }
+
+
+@router.get("/me")
+def get_me(user=Depends(get_current_user)):
+    return {
+        "success": True,
+        "data": {
+            "company_id": user["company_id"],
+            "user": user
         }
     }

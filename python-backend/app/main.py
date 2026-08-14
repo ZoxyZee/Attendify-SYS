@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -6,10 +8,11 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from .config import settings
-from .database import ensure_indexes
+from .database import check_database_connection, ensure_indexes
 from .routers import attendance, auth, company, devices, employees, recognition
 
 
+logger = logging.getLogger("attendify")
 limiter = Limiter(key_func=get_remote_address, default_limits=[f"{settings.rate_limit_times}/{settings.rate_limit_seconds} seconds"])
 app = FastAPI(title="Attendify Python Backend", version="1.0.0")
 app.state.limiter = limiter
@@ -18,6 +21,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_client_urls,
+    allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
@@ -26,7 +30,10 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup():
-    ensure_indexes()
+    try:
+        ensure_indexes()
+    except Exception:
+        logger.exception("Database index initialization failed. The API will keep running for health checks.")
 
 
 @app.exception_handler(HTTPException)
@@ -42,7 +49,17 @@ async def unhandled_exception_handler(_: Request, exc: Exception):
 @app.get("/health")
 @limiter.limit(f"{settings.rate_limit_times}/{settings.rate_limit_seconds} seconds")
 async def health(request: Request):
-    return {"success": True, "message": "Attendify backend is running"}
+    database_ok, database_message = check_database_connection()
+    return {
+        "success": database_ok,
+        "message": "Attendify backend is running" if database_ok else "Attendify backend is running, but the database is unreachable.",
+        "data": {
+            "database": {
+                "ok": database_ok,
+                "message": database_message
+            }
+        }
+    }
 
 
 app.include_router(auth.router)

@@ -33,7 +33,7 @@ const normalizeRecognitionBaseUrl = (settings = {}) => {
 
 export const createApiClient = (settings) =>
   createHttpClient({
-    baseURL: settings.apiBaseUrl,
+    baseURL: normalizeBaseUrl(settings.apiBaseUrl || ""),
     authToken: settings.authToken
   });
 
@@ -51,6 +51,22 @@ export const normalizeApiError = (error) => {
 
   if (typeof error.response?.data?.detail === "string") {
     return error.response.data.detail;
+  }
+
+  if (Array.isArray(error.response?.data?.detail)) {
+    return error.response.data.detail
+      .map((item) => {
+        if (typeof item === "string") {
+          return item;
+        }
+
+        const path = Array.isArray(item.loc)
+          ? item.loc.filter((part) => part !== "body").join(" ")
+          : "";
+        const message = item.msg || item.message || "Invalid value";
+        return path ? `${path}: ${message}` : message;
+      })
+      .join(" ");
   }
 
   if (error.message === "Network Error") {

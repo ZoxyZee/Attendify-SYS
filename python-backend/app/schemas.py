@@ -60,6 +60,12 @@ class AttendanceMarkRequest(BaseModel):
     timestamp: datetime
 
 
+class FaceAttendanceMarkRequest(BaseModel):
+    image_base64: str
+    device_id: str
+    timestamp: datetime
+
+
 class AttendanceSyncRecord(BaseModel):
     employee_id: str
     device_id: str

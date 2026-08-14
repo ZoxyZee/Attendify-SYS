@@ -1,0 +1,11 @@
+{
+  "name": "attendify-pwa-scratch",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install:all": "npm --prefix backend install && npm --prefix web install",
+    "start:all": "powershell -ExecutionPolicy Bypass -File scripts/start-all.ps1",
+    "stop:all": "powershell -ExecutionPolicy Bypass -File scripts/stop-all.ps1",
+    "check": "node scripts/check-system.mjs"
+  }
+}

@@ -1,10 +1,10 @@
-import { MonitorSmartphone, Plus } from "lucide-react";
+import { MonitorSmartphone, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import Loader from "../components/Loader";
 import Modal from "../components/Modal";
 import Table from "../components/Table";
-import { fetchDevices, registerDevice } from "../services/deviceService";
+import { fetchDevices, registerDevice, removeDevice } from "../services/deviceService";
 
 function DevicesPage() {
   const [devices, setDevices] = useState([]);
@@ -13,6 +13,7 @@ function DevicesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [formData, setFormData] = useState({ device_name: "", device_id: "" });
   const [submitting, setSubmitting] = useState(false);
+  const [removingId, setRemovingId] = useState("");
 
   const loadDevices = async () => {
     try {
@@ -46,6 +47,23 @@ function DevicesPage() {
     }
   };
 
+  const handleRemove = async (device) => {
+    const confirmed = window.confirm(`Remove device "${device.device_name || device.device_id}"?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setRemovingId(device.device_id);
+    try {
+      await removeDevice(device.device_id);
+      await loadDevices();
+    } catch (removeError) {
+      setError(removeError.message);
+    } finally {
+      setRemovingId("");
+    }
+  };
+
   const columns = [
     {
       key: "device_name",
@@ -64,6 +82,21 @@ function DevicesPage() {
       key: "last_active",
       label: "Last Active",
       render: (row) => new Date(row.last_active).toLocaleString()
+    },
+    {
+      key: "actions",
+      label: "Actions",
+      render: (row) => (
+        <button
+          type="button"
+          onClick={() => handleRemove(row)}
+          disabled={removingId === row.device_id}
+          className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-900/70 dark:bg-rose-950/40 dark:text-rose-300"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          {removingId === row.device_id ? "Removing..." : "Remove"}
+        </button>
+      )
     }
   ];
 

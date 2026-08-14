@@ -1,3 +1,5 @@
+import { APP_TIME_ZONE, formatIstDate } from "./time";
+
 const escapeCsvValue = (value) => {
   if (value === null || value === undefined) {
     return "";
@@ -21,7 +23,7 @@ const formatDateValue = (value) => {
     return "";
   }
 
-  return `'${date.toISOString().slice(0, 10)}`;
+  return `'${formatIstDate(date)}`;
 };
 
 const formatTimeValue = (value) => {
@@ -35,6 +37,7 @@ const formatTimeValue = (value) => {
   }
 
   return `'${date.toLocaleTimeString([], {
+    timeZone: APP_TIME_ZONE,
     hour: "2-digit",
     minute: "2-digit"
   })}`;

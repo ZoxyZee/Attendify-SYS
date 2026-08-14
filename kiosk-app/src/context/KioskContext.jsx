@@ -12,14 +12,17 @@ import {
   saveSetting
 } from "../services/database";
 import { createApiClient, isUnauthorizedError, normalizeApiError } from "../services/api";
+import { getDefaultBackendUrl, normalizeBackendUrl } from "../services/backendUrl";
 import { fetchCompanySettings } from "../services/companyService";
 import { markAttendanceRecord, registerDeviceWithBackend, syncPendingLogs } from "../services/syncService";
 
 const KioskContext = createContext(null);
 
+const defaultBackendUrl = getDefaultBackendUrl();
+
 const defaultSettings = {
-  apiBaseUrl: "http://192.168.29.245:5000",
-  recognitionBaseUrl: "http://192.168.29.245:5000",
+  apiBaseUrl: defaultBackendUrl,
+  recognitionBaseUrl: defaultBackendUrl,
   authToken: "",
   deviceId: "KIOSK-01",
   deviceName: "Attendify Front Desk",
@@ -32,6 +35,20 @@ const normalizeAdminPin = (value) => {
   const pin = String(value ?? "").trim();
   return pin || "1234";
 };
+
+const buildEmployeePayload = (employee) => ({
+  employee_id: employee.employee_id,
+  name: employee.name,
+  department: employee.department || "General",
+  face_label: employee.face_label || employee.employee_id,
+  face_embedding: employee.face_embedding || [],
+  face_embeddings: employee.embeddings || [],
+  face_image_base64: employee.face_image_base64 || "",
+  face_match_vector: employee.face_match_vector || [],
+  embedding_engine: employee.embedding_engine || null,
+  face_registered_at: employee.embedding_updated_at || new Date().toISOString(),
+  status: "active"
+});
 
 export function KioskProvider({ children }) {
   const db = useSQLiteContext();
@@ -60,6 +77,16 @@ export function KioskProvider({ children }) {
     } catch (error) {
       return null;
     }
+  }, []);
+
+  const validateCompanySession = useCallback(async (activeSettings) => {
+    if (!activeSettings.apiBaseUrl || !activeSettings.authToken) {
+      return null;
+    }
+
+    const api = createApiClient(activeSettings);
+    const response = await api.get("/auth/me");
+    return response.data?.data || null;
   }, []);
 
   const applyBackendAdminPin = useCallback(
@@ -94,17 +121,42 @@ export function KioskProvider({ children }) {
         }
 
         if (value !== null && value !== undefined) {
-          loadedSettings[key] = value;
+          loadedSettings[key] = key === "apiBaseUrl" || key === "recognitionBaseUrl" ? normalizeBackendUrl(value) : value;
         }
       }
 
-      setSettings(loadedSettings);
+      await Promise.all([
+        saveSetting(db, "apiBaseUrl", loadedSettings.apiBaseUrl),
+        saveSetting(db, "recognitionBaseUrl", loadedSettings.recognitionBaseUrl)
+      ]);
+
+      let activeSettings = loadedSettings;
+      setSettings(activeSettings);
       await refreshData();
 
-      if (loadedSettings.apiBaseUrl && loadedSettings.authToken && loadedSettings.companyId) {
-        const companySettings = await loadCompanySettings(loadedSettings);
-        if (companySettings) {
-          await applyBackendAdminPin(loadedSettings, companySettings);
+      if (activeSettings.apiBaseUrl && activeSettings.authToken && activeSettings.companyId) {
+        try {
+          const session = await validateCompanySession(activeSettings);
+          if (session?.company_id && session.company_id !== activeSettings.companyId) {
+            activeSettings = { ...activeSettings, companyId: String(session.company_id) };
+            setSettings(activeSettings);
+            await saveSetting(db, "companyId", activeSettings.companyId);
+          }
+
+          const companySettings = await loadCompanySettings(activeSettings);
+          if (companySettings) {
+            await applyBackendAdminPin(activeSettings, companySettings);
+          }
+        } catch (error) {
+          if (isUnauthorizedError(error)) {
+            activeSettings = { ...activeSettings, authToken: "", companyId: "" };
+            setSettings(activeSettings);
+            setSessionMessage("Kiosk session expired. Sign in again to capture faces and mark attendance.");
+            await Promise.all([
+              saveSetting(db, "authToken", ""),
+              saveSetting(db, "companyId", "")
+            ]);
+          }
         }
       }
 
@@ -112,7 +164,7 @@ export function KioskProvider({ children }) {
     };
 
     loadInitialState();
-  }, [db, refreshData]);
+  }, [applyBackendAdminPin, db, loadCompanySettings, refreshData, validateCompanySession]);
 
   useEffect(() => {
     const syncBackendAdminPin = async () => {
@@ -131,6 +183,14 @@ export function KioskProvider({ children }) {
 
   const updateSettings = async (partialSettings) => {
     const normalizedSettings = { ...partialSettings };
+
+    if (normalizedSettings.apiBaseUrl !== undefined) {
+      normalizedSettings.apiBaseUrl = normalizeBackendUrl(normalizedSettings.apiBaseUrl);
+    }
+
+    if (normalizedSettings.recognitionBaseUrl !== undefined) {
+      normalizedSettings.recognitionBaseUrl = normalizeBackendUrl(normalizedSettings.recognitionBaseUrl);
+    }
 
     if (normalizedSettings.adminPin !== undefined) {
       normalizedSettings.adminPin = normalizeAdminPin(normalizedSettings.adminPin);
@@ -165,21 +225,9 @@ export function KioskProvider({ children }) {
   const loginKiosk = async ({ apiBaseUrl, recognitionBaseUrl, email, password, deviceId, deviceName, adminPin }) => {
     setAuthBusy(true);
     try {
-      // Preload ML models during login to avoid first-scan hangs
-      console.log("Preloading ML models...");
-      Promise.allSettled([
-        import("../services/embeddingService").then(m => m.loadBlazeFaceModel()),
-        import("../services/embeddingService").then(m => m.loadMobileFaceNetModel())
-      ]).then(results => {
-        results.forEach((result, i) => {
-          if (result.status === 'rejected') {
-            console.warn(`Model preload failed [${i}]:`, result.reason);
-          }
-        });
-        console.log("ML models preloaded");
-      });
-      
-      const api = createApiClient({ apiBaseUrl, authToken: "" });
+      const normalizedApiBaseUrl = normalizeBackendUrl(apiBaseUrl);
+      const normalizedRecognitionBaseUrl = normalizeBackendUrl(recognitionBaseUrl || apiBaseUrl);
+      const api = createApiClient({ apiBaseUrl: normalizedApiBaseUrl, authToken: "" });
       const response = await api.post("/auth/login", {
         email,
         password
@@ -198,8 +246,8 @@ export function KioskProvider({ children }) {
       }
 
       const authSettings = {
-        apiBaseUrl,
-        recognitionBaseUrl: recognitionBaseUrl || settings.recognitionBaseUrl,
+        apiBaseUrl: normalizedApiBaseUrl,
+        recognitionBaseUrl: normalizedRecognitionBaseUrl,
         authToken: payload.token,
         companyId: nextCompanyId,
         deviceId: deviceId || settings.deviceId,
@@ -299,6 +347,8 @@ export function KioskProvider({ children }) {
               embeddings,
               embedding_engine: shouldPreferRemote ? remoteEngine || localEngine || null : localEngine || remoteEngine || null,
               face_embedding: primaryEmbedding,
+              face_image_base64: employee.face_image_base64 || localEmployee?.face_image_base64 || "",
+              face_match_vector: employee.face_match_vector || localEmployee?.face_match_vector || null,
               embedding_updated_at: employee.face_registered_at || localEmployee?.embedding_updated_at || null
             });
           })
@@ -377,33 +427,39 @@ export function KioskProvider({ children }) {
   }, [syncNow]);
 
   const registerEmployee = async (employee) => {
+    let backendError = null;
+
     if (settings.apiBaseUrl && settings.authToken) {
       try {
         await registerDeviceWithBackend(settings);
         const api = createApiClient(settings);
-        await api.post("/employees/create", {
-          employee_id: employee.employee_id,
-          name: employee.name,
-          department: employee.department || "General",
-          face_label: employee.face_label || employee.employee_id,
-          face_embedding: employee.face_embedding || [],
-          face_embeddings: employee.embeddings || [],
-          embedding_engine: employee.embedding_engine || null,
-          face_registered_at: employee.embedding_updated_at || new Date().toISOString(),
-          status: "active"
-        });
-      } catch (error) {
-        if (isUnauthorizedError(error)) {
-          await expireKioskSession("Kiosk session expired while saving the employee. Sign in again.");
-          throw new Error("Kiosk session expired. Sign in again before registering employees.");
-        }
+        const payload = buildEmployeePayload(employee);
 
-        console.warn("Unable to register employee with backend:", error.message);
+        try {
+          await api.post("/employees/create", payload);
+        } catch (createError) {
+          if (createError.response?.status !== 409) {
+            throw createError;
+          }
+
+          await api.put("/employees/update", payload);
+        }
+      } catch (error) {
+        backendError = error;
+        if (isUnauthorizedError(error)) {
+          await expireKioskSession("Kiosk session expired after the face was captured. Sign in again, then tap Import Employees From Website or Sync.");
+        } else {
+          console.warn("Unable to register employee with backend:", error.message);
+        }
       }
     }
 
     await saveEmployee(db, employee);
     await refreshData();
+
+    if (backendError && isUnauthorizedError(backendError)) {
+      throw new Error("Face saved on this phone, but the kiosk session expired before backend sync. Sign in again to continue attendance syncing.");
+    }
   };
 
   const importEmployeesFromServer = async () => {

@@ -4,9 +4,11 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..database import db
-from ..dependencies import get_current_user, serialize_document
-from ..schemas import AttendanceMarkRequest, AttendanceSyncRequest
+from ..dependencies import get_current_user, serialize_document, serialize_value
+from ..routers.recognition import EmployeePayload, decode_image, get_single_face_from_capture, recognize_face
+from ..schemas import AttendanceMarkRequest, AttendanceSyncRequest, FaceAttendanceMarkRequest
 from ..utils.attendance import is_duplicate_attendance, resolve_attendance_type_for_day
+from ..utils.time import ist_custom_range, ist_date_range, ist_day_range, ist_iso_date, to_ist, to_utc_naive, utc_now_naive
 from ..utils.work_schedule import DEFAULT_WORK_SCHEDULE, build_daily_work_metrics
 
 
@@ -14,34 +16,33 @@ router = APIRouter(prefix="/attendance", tags=["attendance"])
 
 
 def build_range(filter_mode: str = "today", date: str = "", start_date: str = "", end_date: str = ""):
-    now = datetime.now()
+    now_ist = to_ist(utc_now_naive())
     if date:
-        start = datetime.fromisoformat(date)
-        start = start.replace(hour=0, minute=0, second=0, microsecond=0)
-        end = start.replace(hour=23, minute=59, second=59, microsecond=999000)
+        start, end = ist_date_range(date)
         return start, end, "date"
     if start_date or end_date:
         if not start_date or not end_date:
             raise HTTPException(status_code=400, detail="Both startDate and endDate are required for a custom range.")
-        start = datetime.fromisoformat(start_date).replace(hour=0, minute=0, second=0, microsecond=0)
-        end = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59, microsecond=999000)
+        start, end = ist_custom_range(start_date, end_date)
         if start > end:
             raise HTTPException(status_code=400, detail="Start date cannot be after end date.")
         return start, end, "range"
     if filter_mode == "today":
-        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        end = now.replace(hour=23, minute=59, second=59, microsecond=999000)
+        start, end = ist_day_range()
         return start, end, "today"
     if filter_mode == "week":
-        diff = 6 if now.weekday() == 6 else now.weekday()
-        start = (now - timedelta(days=diff)).replace(hour=0, minute=0, second=0, microsecond=0)
-        end = now.replace(hour=23, minute=59, second=59, microsecond=999000)
+        diff = 6 if now_ist.weekday() == 6 else now_ist.weekday()
+        start, _ = ist_day_range(now_ist - timedelta(days=diff))
+        _, end = ist_day_range(now_ist)
         return start, end, "week"
-    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    if now.month == 12:
-        end = now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0) - timedelta(milliseconds=1)
+    month_start_ist = now_ist.replace(day=1)
+    start, _ = ist_day_range(month_start_ist)
+    if now_ist.month == 12:
+        next_month_ist = now_ist.replace(year=now_ist.year + 1, month=1, day=1)
     else:
-        end = now.replace(month=now.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0) - timedelta(milliseconds=1)
+        next_month_ist = now_ist.replace(month=now_ist.month + 1, day=1)
+    end, _ = ist_day_range(next_month_ist)
+    end = end - timedelta(milliseconds=1)
     return start, end, "month"
 
 
@@ -60,6 +61,50 @@ def verify_active_employee(company_id: str, employee_id: str):
     if not employee:
         raise HTTPException(status_code=400, detail="Employee does not belong to this company or is inactive.")
     return employee
+
+
+def build_recognition_candidates(company_id: str) -> list[EmployeePayload]:
+    employees = db.employees.find(
+        {"company_id": company_id, "status": "active"},
+        {"employee_id": 1, "name": 1, "face_embedding": 1, "face_embeddings": 1}
+    )
+    candidates = []
+    for employee in employees:
+        embeddings = []
+        if isinstance(employee.get("face_embeddings"), list):
+            embeddings.extend([item for item in employee["face_embeddings"] if isinstance(item, list) and item])
+        if isinstance(employee.get("face_embedding"), list) and employee["face_embedding"]:
+            embeddings.append(employee["face_embedding"])
+        if embeddings:
+            candidates.append(EmployeePayload(
+                employee_id=employee["employee_id"],
+                name=employee.get("name") or employee["employee_id"],
+                embeddings=embeddings
+            ))
+    return candidates
+
+
+def create_attendance_record(company_id: str, employee_id: str, device_id: str, timestamp: datetime, source: str = "kiosk"):
+    record_type = resolve_attendance_type_for_day(company_id, employee_id, timestamp)
+    if not record_type:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendance already completed for today.")
+    if is_duplicate_attendance(company_id, employee_id, timestamp, record_type, device_id):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Duplicate attendance record detected.")
+
+    attendance = {
+        "company_id": company_id,
+        "employee_id": employee_id,
+        "device_id": device_id,
+        "timestamp": timestamp,
+        "type": record_type,
+        "synced": True,
+        "source": source,
+        "createdAt": utc_now_naive(),
+        "updatedAt": utc_now_naive()
+    }
+    inserted_id = db.attendance.insert_one(attendance).inserted_id
+    attendance["_id"] = inserted_id
+    return attendance
 
 
 @router.get("/today")
@@ -98,7 +143,7 @@ def get_attendance_records(
 
     grouped = {}
     for record in records:
-        date_key = record["timestamp"].date().isoformat()
+        date_key = ist_iso_date(record["timestamp"])
         map_key = f"{record['employee_id']}-{date_key}"
         entry = grouped.setdefault(map_key, {
             "id": map_key,
@@ -117,26 +162,29 @@ def get_attendance_records(
             "employee_id": entry["employee_id"],
             "employee_name": entry["employee_name"],
             "date": entry["date"],
-            "check_in": metrics["check_in"],
-            "check_out": metrics["check_out"],
+            "check_in": serialize_value(metrics["check_in"]),
+            "check_out": serialize_value(metrics["check_out"]),
             "status": "In Progress" if metrics["in_progress"] else ("Completed" if metrics["session_count"] > 0 else "Absent"),
             "expected_hours": metrics["expected_hours"],
             "worked_hours": metrics["worked_hours"],
             "overtime_hours": metrics["overtime_hours"],
             "session_count": metrics["session_count"],
-            "sessions": metrics["sessions"]
+            "sessions": serialize_value(metrics["sessions"])
         })
 
     response_data.sort(key=lambda item: (item["date"], item["employee_name"]), reverse=True)
-    return {"success": True, "meta": {"filter_mode": mode, "start": start, "end": end}, "data": response_data}
+    return {
+        "success": True,
+        "meta": {"filter_mode": mode, "start": serialize_value(start), "end": serialize_value(end)},
+        "data": response_data
+    }
 
 
 @router.get("/summary")
 def get_dashboard_summary(user=Depends(get_current_user)):
-    now = datetime.now()
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    today_end = now.replace(hour=23, minute=59, second=59, microsecond=999000)
-    week_start = (now - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+    now = to_ist(utc_now_naive())
+    today_start, today_end = ist_day_range()
+    week_start, _ = ist_day_range(now - timedelta(days=6))
 
     company = db.companies.find_one({"_id": ObjectId(user["company_id"])}, {"work_schedule": 1})
     work_schedule = company.get("work_schedule") if company else DEFAULT_WORK_SCHEDULE
@@ -169,11 +217,10 @@ def get_dashboard_summary(user=Depends(get_current_user)):
 
     weekly_data = []
     for index in range(6, -1, -1):
-        day_start = (now - timedelta(days=index)).replace(hour=0, minute=0, second=0, microsecond=0)
-        day_end = day_start.replace(hour=23, minute=59, second=59, microsecond=999000)
+        day_start, day_end = ist_day_range(now - timedelta(days=index))
         day_records = [record for record in weekly_records if day_start <= record["timestamp"] <= day_end]
         unique_present = {record["employee_id"] for record in day_records if record["type"] == "check_in"}
-        weekly_data.append({"label": day_start.strftime("%a"), "present": len(unique_present)})
+        weekly_data.append({"label": to_ist(day_start).strftime("%a"), "present": len(unique_present)})
 
     monthly_data = []
     for index in range(5, -1, -1):
@@ -187,12 +234,14 @@ def get_dashboard_summary(user=Depends(get_current_user)):
             month_end = datetime(year + 1, 1, 1) - timedelta(milliseconds=1)
         else:
             month_end = datetime(year, month + 1, 1) - timedelta(milliseconds=1)
+        month_start, _ = ist_day_range(month_start)
+        _, month_end = ist_day_range(month_end)
         month_records = list(db.attendance.find({
             "company_id": user["company_id"],
             "timestamp": {"$gte": month_start, "$lte": month_end},
             "type": "check_in"
         }))
-        present = len({f"{record['employee_id']}-{record['timestamp'].date().isoformat()}" for record in month_records})
+        present = len({f"{record['employee_id']}-{ist_iso_date(record['timestamp'])}" for record in month_records})
         monthly_data.append({"label": month_start.strftime("%b"), "present": present})
 
     return {
@@ -217,55 +266,55 @@ def get_dashboard_summary(user=Depends(get_current_user)):
 
 @router.post("/mark")
 def mark_attendance(payload: AttendanceMarkRequest, user=Depends(get_current_user)):
+    timestamp = to_utc_naive(payload.timestamp)
     verify_device_and_employee(user["company_id"], payload.employee_id, payload.device_id)
-    record_type = resolve_attendance_type_for_day(user["company_id"], payload.employee_id, payload.timestamp)
-    if not record_type:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendance already completed for today.")
-    if is_duplicate_attendance(user["company_id"], payload.employee_id, payload.timestamp, record_type, payload.device_id):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Duplicate attendance record detected.")
-
-    attendance = {
-        "company_id": user["company_id"],
-        "employee_id": payload.employee_id,
-        "device_id": payload.device_id,
-        "timestamp": payload.timestamp,
-        "type": record_type,
-        "synced": True,
-        "createdAt": datetime.utcnow(),
-        "updatedAt": datetime.utcnow()
-    }
-    inserted_id = db.attendance.insert_one(attendance).inserted_id
-    attendance["_id"] = inserted_id
+    attendance = create_attendance_record(user["company_id"], payload.employee_id, payload.device_id, timestamp)
     db.devices.update_one(
         {"company_id": user["company_id"], "device_id": payload.device_id},
-        {"$set": {"last_active": datetime.utcnow()}}
+        {"$set": {"last_active": utc_now_naive()}}
     )
-    return {"success": True, "message": f"Attendance {record_type} recorded successfully.", "data": serialize_document(attendance)}
+    return {"success": True, "message": f"Attendance {attendance['type']} recorded successfully.", "data": serialize_document(attendance)}
+
+
+@router.post("/mark-face")
+def mark_face_attendance(payload: FaceAttendanceMarkRequest, user=Depends(get_current_user)):
+    timestamp = to_utc_naive(payload.timestamp)
+    device = db.devices.find_one({"company_id": user["company_id"], "device_id": payload.device_id})
+    if not device:
+        raise HTTPException(status_code=400, detail="Device is not registered for this company.")
+
+    candidates = build_recognition_candidates(user["company_id"])
+    if not candidates:
+        raise HTTPException(status_code=400, detail="No registered employee face profiles found for this company.")
+
+    face = get_single_face_from_capture(decode_image(payload.image_base64))
+    match = recognize_face(face, candidates)
+    verify_active_employee(user["company_id"], match["employee_id"])
+    attendance = create_attendance_record(user["company_id"], match["employee_id"], payload.device_id, timestamp, "kiosk_face")
+    db.devices.update_one(
+        {"company_id": user["company_id"], "device_id": payload.device_id},
+        {"$set": {"last_active": utc_now_naive()}}
+    )
+    data = serialize_document(attendance)
+    data["employee_name"] = match["employee_name"]
+    data["confidence"] = match["confidence"]
+    data["similarity"] = match["similarity"]
+    data["recognition"] = match
+    return {"success": True, "message": f"Attendance {attendance['type']} recorded successfully.", "data": data}
 
 
 @router.post("/mark-web")
 def mark_web_attendance(payload: AttendanceMarkRequest, user=Depends(get_current_user)):
+    timestamp = to_utc_naive(payload.timestamp)
     verify_active_employee(user["company_id"], payload.employee_id)
-    record_type = resolve_attendance_type_for_day(user["company_id"], payload.employee_id, payload.timestamp)
-    if not record_type:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Attendance already completed for today.")
-    if is_duplicate_attendance(user["company_id"], payload.employee_id, payload.timestamp, record_type, payload.device_id):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Duplicate attendance record detected.")
-
-    attendance = {
-        "company_id": user["company_id"],
-        "employee_id": payload.employee_id,
-        "device_id": payload.device_id or "web-dashboard",
-        "timestamp": payload.timestamp,
-        "type": record_type,
-        "synced": True,
-        "source": "web_dashboard",
-        "createdAt": datetime.utcnow(),
-        "updatedAt": datetime.utcnow()
-    }
-    inserted_id = db.attendance.insert_one(attendance).inserted_id
-    attendance["_id"] = inserted_id
-    return {"success": True, "message": f"Web attendance {record_type} recorded successfully.", "data": serialize_document(attendance)}
+    attendance = create_attendance_record(
+        user["company_id"],
+        payload.employee_id,
+        payload.device_id or "web-dashboard",
+        timestamp,
+        "web_dashboard"
+    )
+    return {"success": True, "message": f"Web attendance {attendance['type']} recorded successfully.", "data": serialize_document(attendance)}
 
 
 @router.post("/sync")
@@ -273,22 +322,23 @@ def sync_attendance(payload: AttendanceSyncRequest, user=Depends(get_current_use
     results = []
     for record in sorted(payload.records, key=lambda item: item.timestamp):
         try:
+            timestamp = to_utc_naive(record.timestamp)
             verify_device_and_employee(user["company_id"], record.employee_id, record.device_id)
-            record_type = resolve_attendance_type_for_day(user["company_id"], record.employee_id, record.timestamp)
+            record_type = resolve_attendance_type_for_day(user["company_id"], record.employee_id, timestamp)
             if not record_type:
                 results.append({
                     "employee_id": record.employee_id,
                     "device_id": record.device_id,
-                    "timestamp": record.timestamp,
+                    "timestamp": timestamp,
                     "success": False,
                     "message": "Attendance already completed for that day."
                 })
                 continue
-            if is_duplicate_attendance(user["company_id"], record.employee_id, record.timestamp, record_type, record.device_id):
+            if is_duplicate_attendance(user["company_id"], record.employee_id, timestamp, record_type, record.device_id):
                 results.append({
                     "employee_id": record.employee_id,
                     "device_id": record.device_id,
-                    "timestamp": record.timestamp,
+                    "timestamp": timestamp,
                     "success": False,
                     "message": "Duplicate attendance record detected."
                 })
@@ -298,21 +348,21 @@ def sync_attendance(payload: AttendanceSyncRequest, user=Depends(get_current_use
                 "company_id": user["company_id"],
                 "employee_id": record.employee_id,
                 "device_id": record.device_id,
-                "timestamp": record.timestamp,
+                "timestamp": timestamp,
                 "type": record_type,
                 "synced": True,
-                "createdAt": datetime.utcnow(),
-                "updatedAt": datetime.utcnow()
+                "createdAt": utc_now_naive(),
+                "updatedAt": utc_now_naive()
             }
             attendance_id = db.attendance.insert_one(attendance).inserted_id
             db.devices.update_one(
                 {"company_id": user["company_id"], "device_id": record.device_id},
-                {"$set": {"last_active": datetime.utcnow()}}
+                    {"$set": {"last_active": utc_now_naive()}}
             )
             results.append({
                 "employee_id": record.employee_id,
                 "device_id": record.device_id,
-                "timestamp": record.timestamp,
+                "timestamp": timestamp,
                 "success": True,
                 "type": record_type,
                 "attendance_id": str(attendance_id)

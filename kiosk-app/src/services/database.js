@@ -17,6 +17,8 @@ export const initializeDatabase = async (db) => {
       embedding_4 TEXT,
       embedding_5 TEXT,
       face_embedding TEXT,
+      face_image_base64 TEXT,
+      face_match_vector TEXT,
       embedding_engine TEXT,
       embedding_updated_at TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -92,6 +94,22 @@ export const initializeDatabase = async (db) => {
   }
 
   try {
+    await db.execAsync("ALTER TABLE employees ADD COLUMN face_image_base64 TEXT;");
+  } catch (error) {
+    if (!String(error.message).includes("duplicate column name")) {
+      throw error;
+    }
+  }
+
+  try {
+    await db.execAsync("ALTER TABLE employees ADD COLUMN face_match_vector TEXT;");
+  } catch (error) {
+    if (!String(error.message).includes("duplicate column name")) {
+      throw error;
+    }
+  }
+
+  try {
     await db.execAsync("ALTER TABLE employees ADD COLUMN embedding_engine TEXT;");
   } catch (error) {
     if (!String(error.message).includes("duplicate column name")) {
@@ -129,8 +147,8 @@ export const saveEmployee = async (db, employee) => {
   const legacyEmbedding = employee.face_embedding || embeddings[0] || null;
 
   await db.runAsync(
-    `INSERT INTO employees (employee_id, name, department, face_label, embedding_1, embedding_2, embedding_3, embedding_4, embedding_5, face_embedding, embedding_engine, embedding_updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO employees (employee_id, name, department, face_label, embedding_1, embedding_2, embedding_3, embedding_4, embedding_5, face_embedding, face_image_base64, face_match_vector, embedding_engine, embedding_updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(employee_id) DO UPDATE SET
        name = excluded.name,
        department = excluded.department,
@@ -141,6 +159,8 @@ export const saveEmployee = async (db, employee) => {
        embedding_4 = COALESCE(excluded.embedding_4, employees.embedding_4),
        embedding_5 = COALESCE(excluded.embedding_5, employees.embedding_5),
        face_embedding = COALESCE(excluded.face_embedding, employees.face_embedding),
+       face_image_base64 = COALESCE(excluded.face_image_base64, employees.face_image_base64),
+       face_match_vector = COALESCE(excluded.face_match_vector, employees.face_match_vector),
         embedding_engine = COALESCE(excluded.embedding_engine, employees.embedding_engine),
         embedding_updated_at = COALESCE(excluded.embedding_updated_at, employees.embedding_updated_at)`,
     employee.employee_id,
@@ -153,8 +173,10 @@ export const saveEmployee = async (db, employee) => {
     embeddings[3] ? JSON.stringify(embeddings[3]) : null,
     embeddings[4] ? JSON.stringify(embeddings[4]) : null,
     legacyEmbedding ? JSON.stringify(legacyEmbedding) : null,
+    employee.face_image_base64 || null,
+    employee.face_match_vector ? JSON.stringify(employee.face_match_vector) : null,
     employee.embedding_engine || null,
-    employee.embedding_updated_at || (legacyEmbedding ? new Date().toISOString() : null)
+    employee.embedding_updated_at || (legacyEmbedding || employee.face_match_vector ? new Date().toISOString() : null)
   );
 };
 
@@ -171,6 +193,8 @@ export const getParsedEmployees = async (db) => {
       .filter(Boolean)
       .map((item) => JSON.parse(item)),
     face_embedding: row.face_embedding ? JSON.parse(row.face_embedding) : null,
+    face_image_base64: row.face_image_base64 || "",
+    face_match_vector: row.face_match_vector ? JSON.parse(row.face_match_vector) : null,
     embedding_engine: row.embedding_engine || null
   }));
 };

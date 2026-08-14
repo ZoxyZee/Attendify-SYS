@@ -31,7 +31,7 @@ function EnrollmentCaptureOverlay({
               {employee.name} | {employee.employee_id} | {employee.department || "General"}
             </Text>
             <Text className="mt-3 text-sm leading-6 text-slate-400">
-              Keep the face centered inside the guide. Capture 5 clear samples with small angle changes to make recognition more reliable.
+              Keep the face centered inside the guide. One tap captures 5 quick samples for reliable recognition.
             </Text>
           </View>
           <TouchableOpacity onPress={onClose} className="rounded-full border border-white/10 bg-white/10 p-3">
@@ -51,7 +51,7 @@ function EnrollmentCaptureOverlay({
           <View className="absolute bottom-24 left-10 h-10 w-10 rounded-bl-3xl border-b-4 border-l-4 border-sky-300/90" />
           <View className="absolute bottom-24 right-10 h-10 w-10 rounded-br-3xl border-b-4 border-r-4 border-sky-300/90" />
           <View className="absolute bottom-7 rounded-full border border-white/10 bg-black/55 px-4 py-2">
-            <Text className="text-sm font-semibold uppercase tracking-[1.4px] text-white">Align face and tap capture</Text>
+            <Text className="text-sm font-semibold uppercase tracking-[1.4px] text-white">Align face and tap auto capture</Text>
           </View>
         </View>
       </View>
@@ -100,7 +100,7 @@ function EnrollmentCaptureOverlay({
         ) : null}
 
         <Text className="mb-4 mt-4 text-center text-sm leading-6 text-slate-300">
-          Change angle slightly between captures for a stronger face profile.
+          Keep still during auto capture. Turn slightly only if the app asks you to retake.
         </Text>
         <View className="flex-row gap-3">
           <TouchableOpacity
@@ -112,7 +112,7 @@ function EnrollmentCaptureOverlay({
           >
             {busy ? <ActivityIndicator color="#fff" /> : <MaterialIcons name="photo-camera" size={20} color="#fff" />}
             <Text className="ml-2 text-base font-semibold text-white">
-              {busy ? "Capturing..." : sampleCount >= 5 ? "All Samples Captured" : `Capture ${sampleCount + 1}`}
+              {busy ? "Capturing..." : sampleCount >= 5 ? "All Samples Captured" : `Capture ${5 - sampleCount} Samples`}
             </Text>
           </TouchableOpacity>
 

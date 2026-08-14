@@ -1,6 +1,7 @@
 const EPSILON = 1e-8;
-const MATCH_THRESHOLD = 0.40; // Further lower for testing
-const MATCH_MARGIN_THRESHOLD = 0.005; // Relax margin
+const MATCH_THRESHOLD = 0.45;
+const HIGH_CONFIDENCE_THRESHOLD = 0.72;
+const MATCH_MARGIN_THRESHOLD = 0.015;
 
 export const cosineSimilarity = (vectorA, vectorB) => {
   if (!vectorA?.length || !vectorB?.length || vectorA.length !== vectorB.length) {
@@ -72,13 +73,22 @@ export const findBestMatch = (embedding, employees) => {
 
   const similarityGap = bestMatch.similarity - (secondBestMatch?.similarity || 0);
 
-  if (secondBestMatch && similarityGap < MATCH_MARGIN_THRESHOLD) {
-    throw new Error("Face match is too close to another employee. Please scan again in better lighting.");
+  if (
+    secondBestMatch &&
+    similarityGap < MATCH_MARGIN_THRESHOLD &&
+    bestMatch.similarity < HIGH_CONFIDENCE_THRESHOLD
+  ) {
+    throw new Error(
+      `Face match is unclear (${bestMatch.employee_name} ${bestMatch.similarity.toFixed(3)}, next ${secondBestMatch.employee_name} ${secondBestMatch.similarity.toFixed(3)}). Please scan again in better lighting.`
+    );
   }
 
   return {
     ...bestMatch,
     confidence: Number(bestMatch.similarity.toFixed(3)),
-    similarity_gap: Number(similarityGap.toFixed(3))
+    similarity_gap: Number(similarityGap.toFixed(3)),
+    second_best_employee_id: secondBestMatch?.employee_id || null,
+    second_best_employee_name: secondBestMatch?.employee_name || null,
+    second_best_similarity: secondBestMatch ? Number(secondBestMatch.similarity.toFixed(3)) : null
   };
 };

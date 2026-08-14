@@ -1,4 +1,4 @@
-import { Pencil, Plus, ScanFace, Trash2, UserMinus } from "lucide-react";
+import { Clock, Pencil, Plus, ScanFace, Trash2, UserMinus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -12,6 +12,7 @@ import {
   fetchEmployees,
   updateEmployee
 } from "../services/employeeService";
+import { markWebAttendance } from "../services/attendanceService";
 
 const defaultForm = {
   name: "",
@@ -28,6 +29,7 @@ function EmployeesPage() {
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [formData, setFormData] = useState(defaultForm);
   const [submitting, setSubmitting] = useState(false);
+  const [markingEmployeeId, setMarkingEmployeeId] = useState("");
 
   const loadEmployees = async () => {
     try {
@@ -111,6 +113,18 @@ function EmployeesPage() {
     }
   };
 
+  const handleQuickAttendance = async (employee) => {
+    try {
+      setMarkingEmployeeId(employee.employee_id);
+      await markWebAttendance({ employee_id: employee.employee_id });
+      setError("");
+    } catch (actionError) {
+      setError(actionError.message);
+    } finally {
+      setMarkingEmployeeId("");
+    }
+  };
+
   const columns = [
     {
       key: "name",
@@ -144,6 +158,15 @@ function EmployeesPage() {
           </button>
           <button type="button" onClick={() => navigate("/faces")} className="btn-secondary px-3 py-2">
             <ScanFace className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => handleQuickAttendance(row)}
+            disabled={markingEmployeeId === row.employee_id || row.status !== "active"}
+            className="btn-secondary px-3 py-2"
+            title="Mark attendance now"
+          >
+            <Clock className="h-4 w-4" />
           </button>
           <button
             type="button"

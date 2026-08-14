@@ -4,6 +4,7 @@ import {
   CreditCard,
   LayoutDashboard,
   MonitorSmartphone,
+  Smartphone,
   ScanFace,
   Users
 } from "lucide-react";
@@ -14,6 +15,7 @@ const items = [
   { label: "Employees", to: "/employees", icon: Users },
   { label: "Face Registry", to: "/faces", icon: ScanFace },
   { label: "Attendance", to: "/attendance", icon: CreditCard },
+  { label: "PWA Kiosk", to: "/kiosk", icon: Smartphone },
   { label: "Devices", to: "/devices", icon: MonitorSmartphone },
   { label: "Reports", to: "/reports", icon: BarChart3 },
   { label: "Settings", to: "/settings", icon: Cog }

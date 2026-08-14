@@ -13,7 +13,7 @@ export function AuthProvider({ children }) {
     const storedUser = localStorage.getItem(USER_KEY);
     return storedUser ? JSON.parse(storedUser) : null;
   });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(Boolean(localStorage.getItem(TOKEN_KEY)));
 
   useEffect(() => {
     if (token) {
@@ -30,6 +30,39 @@ export function AuthProvider({ children }) {
       localStorage.removeItem(USER_KEY);
     }
   }, [user]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const validateSession = async () => {
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const response = await api.get("/auth/me");
+        if (!cancelled) {
+          setUser(response.data?.data?.user || null);
+        }
+      } catch {
+        if (!cancelled) {
+          setToken(null);
+          setUser(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    validateSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const login = async (credentials) => {
     setLoading(true);

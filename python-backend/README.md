@@ -24,6 +24,30 @@ This is the single Python backend for Attendify. It mirrors the existing SaaS AP
 - bcrypt password hashing via Passlib
 - SlowAPI rate limiting
 
+## Folder Structure
+
+```text
+python-backend/
+├─ app/
+│  ├─ main.py                  FastAPI app and health endpoint
+│  ├─ config.py                Environment settings
+│  ├─ database.py              MongoDB connection and indexes
+│  ├─ dependencies.py          JWT session validation
+│  ├─ schemas.py               Pydantic models
+│  ├─ security.py              Password/JWT helpers
+│  ├─ routers/                 Auth, employees, devices, attendance, company, recognition
+│  └─ utils/                   Attendance and work schedule helpers
+├─ requirements.txt            Core backend dependencies
+├─ requirements-recognition.txt Optional server-side face recognition dependencies
+└─ README.md
+```
+
+More details:
+
+- [app/README.md](app/README.md)
+- [app/routers/README.md](app/routers/README.md)
+- [app/utils/README.md](app/utils/README.md)
+
 ## Run
 
 ```bash
@@ -40,6 +64,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 5000 --reload
 - Keep your existing MongoDB running.
 - Point the web dashboard and kiosk `API Base URL` to this Python backend.
 - Point the kiosk `Recognition API URL` to this same backend URL too, for example `http://192.168.29.245:5000`.
+- The phone must use your laptop LAN IP, not `127.0.0.1`.
 
 ## Optional recognition dependencies
 

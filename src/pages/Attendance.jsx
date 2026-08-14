@@ -5,10 +5,13 @@ import Loader from "../components/Loader";
 import StatPill from "../components/StatPill";
 import Table from "../components/Table";
 import WebcamCapture from "../components/WebcamCapture";
+import { useLiveRefresh } from "../hooks/useLiveRefresh";
 import { fetchAttendance, markWebAttendance } from "../services/attendanceService";
 import { fetchEmployees } from "../services/employeeService";
+import { subscribeAttendanceUpdates } from "../services/realtimeService";
 import { recognizeEmployee } from "../services/recognitionService";
 import { downloadAttendanceCsv } from "../utils/attendanceExport";
+import { formatIstDate, formatIstTime, getIstDateInputValue } from "../utils/time";
 
 const filters = [
   { label: "Today", value: "today" },
@@ -16,7 +19,7 @@ const filters = [
   { label: "This Month", value: "month" }
 ];
 
-const todayString = new Date().toISOString().slice(0, 10);
+const todayString = getIstDateInputValue();
 
 function AttendancePage() {
   const [attendance, setAttendance] = useState([]);
@@ -35,29 +38,50 @@ function AttendancePage() {
   const [scanning, setScanning] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
-  useEffect(() => {
-    const timeout = setTimeout(async () => {
-      try {
+  const loadAttendance = async ({ silent = false } = {}) => {
+    try {
+      if (!silent) {
         setLoading(true);
-        const response = await fetchAttendance({
-          filter,
-          search,
-          date: selectedDate,
-          startDate,
-          endDate
-        });
-        setAttendance(response.data);
-        setMeta(response.meta);
-        setError("");
-      } catch (loadError) {
+      }
+      const response = await fetchAttendance({
+        filter,
+        search,
+        date: selectedDate,
+        startDate,
+        endDate
+      });
+      setAttendance(response.data);
+      setMeta(response.meta);
+      setError("");
+    } catch (loadError) {
+      if (!silent) {
         setError(loadError.message);
-      } finally {
+      }
+    } finally {
+      if (!silent) {
         setLoading(false);
       }
+    }
+  };
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      loadAttendance();
     }, 250);
 
     return () => clearTimeout(timeout);
   }, [endDate, filter, reloadKey, search, selectedDate, startDate]);
+
+  useLiveRefresh(
+    () => loadAttendance({ silent: true }),
+    [endDate, filter, search, selectedDate, startDate],
+    2000
+  );
+
+  useEffect(
+    () => subscribeAttendanceUpdates(() => loadAttendance({ silent: true })),
+    [endDate, filter, search, selectedDate, startDate]
+  );
 
   useEffect(() => {
     const loadEmployees = async () => {
@@ -166,10 +190,7 @@ function AttendancePage() {
       label: "Check-in",
       render: (row) =>
         row.check_in
-          ? new Date(row.check_in).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit"
-            })
+          ? formatIstTime(row.check_in)
           : "--"
     },
     {
@@ -177,10 +198,7 @@ function AttendancePage() {
       label: "Check-out",
       render: (row) =>
         row.check_out
-          ? new Date(row.check_out).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit"
-            })
+          ? formatIstTime(row.check_out)
           : "--"
     },
     {
@@ -214,7 +232,7 @@ function AttendancePage() {
     {
       key: "date",
       label: "Date",
-      render: (row) => new Date(row.date).toLocaleDateString()
+      render: (row) => formatIstDate(`${row.date}T00:00:00+05:30`)
     }
   ];
 
@@ -368,7 +386,7 @@ function AttendancePage() {
               <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{activeRangeLabel}</p>
               {meta?.start && meta?.end ? (
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  {new Date(meta.start).toLocaleDateString()} - {new Date(meta.end).toLocaleDateString()}
+                  {formatIstDate(meta.start)} - {formatIstDate(meta.end)}
                 </p>
               ) : null}
             </div>

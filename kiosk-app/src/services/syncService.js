@@ -1,16 +1,24 @@
 import { getPendingLogs, updateAttendanceLog } from "./database";
 import { assertAttendanceAllowed, queueAttendanceRecord } from "./attendanceService";
 import { createApiClient, isUnauthorizedError } from "./api";
+import { normalizeBackendUrl } from "./backendUrl";
+
+const normalizeNetworkSettings = (settings) => ({
+  ...settings,
+  apiBaseUrl: normalizeBackendUrl(settings.apiBaseUrl || ""),
+  recognitionBaseUrl: normalizeBackendUrl(settings.recognitionBaseUrl || settings.apiBaseUrl || "")
+});
 
 export const registerDeviceWithBackend = async (settings) => {
-  if (!settings.apiBaseUrl || !settings.authToken || !settings.deviceId || !settings.deviceName) {
+  const activeSettings = normalizeNetworkSettings(settings);
+  if (!activeSettings.apiBaseUrl || !activeSettings.authToken || !activeSettings.deviceId || !activeSettings.deviceName) {
     return null;
   }
 
-  const api = createApiClient(settings);
+  const api = createApiClient(activeSettings);
   const response = await api.post("/devices/register", {
-    device_id: settings.deviceId,
-    device_name: settings.deviceName
+    device_id: activeSettings.deviceId,
+    device_name: activeSettings.deviceName
   });
 
   return response.data?.data || null;
@@ -30,18 +38,19 @@ const shouldQueueOfflineError = (error) => {
 };
 
 export const markAttendanceRecord = async (db, settings, recognition) => {
+  const activeSettings = normalizeNetworkSettings(settings);
   const timestamp = new Date().toISOString();
   const basePayload = {
     employee_id: recognition.employee_id,
     employee_name: recognition.employee_name,
-    device_id: settings.deviceId,
+    device_id: activeSettings.deviceId,
     timestamp,
     image_uri: recognition.image_uri || ""
   };
 
   await assertAttendanceAllowed(db, basePayload);
 
-  if (!settings.apiBaseUrl || !settings.authToken) {
+  if (!activeSettings.apiBaseUrl || !activeSettings.authToken) {
     const id = await queueAttendanceRecord(db, {
       ...basePayload,
       synced: false,
@@ -56,13 +65,29 @@ export const markAttendanceRecord = async (db, settings, recognition) => {
   }
 
   try {
-    await registerDeviceWithBackend(settings);
-    const api = createApiClient(settings);
-    const response = await api.post("/attendance/mark", {
-      employee_id: recognition.employee_id,
-      device_id: settings.deviceId,
-      timestamp
-    });
+    const api = createApiClient(activeSettings);
+    let response;
+    try {
+      response = await api.post("/attendance/mark", {
+        employee_id: recognition.employee_id,
+        device_id: activeSettings.deviceId,
+        device_name: activeSettings.deviceName,
+        timestamp
+      });
+    } catch (markError) {
+      const message = String(markError.response?.data?.message || markError.response?.data?.detail || "");
+      if (markError.response?.status !== 400 || !message.toLowerCase().includes("device")) {
+        throw markError;
+      }
+
+      await registerDeviceWithBackend(activeSettings);
+      response = await api.post("/attendance/mark", {
+        employee_id: recognition.employee_id,
+        device_id: activeSettings.deviceId,
+        device_name: activeSettings.deviceName,
+        timestamp
+      });
+    }
 
     const id = await queueAttendanceRecord(db, {
       ...basePayload,
@@ -104,11 +129,12 @@ export const markAttendanceRecord = async (db, settings, recognition) => {
 };
 
 export const syncPendingLogs = async (db, settings) => {
-  if (!settings.apiBaseUrl || !settings.authToken) {
+  const activeSettings = normalizeNetworkSettings(settings);
+  if (!activeSettings.apiBaseUrl || !activeSettings.authToken) {
     return { syncedCount: 0, message: "API settings are incomplete." };
   }
 
-  await registerDeviceWithBackend(settings);
+  await registerDeviceWithBackend(activeSettings);
 
   const pendingLogs = await getPendingLogs(db);
 
@@ -116,7 +142,7 @@ export const syncPendingLogs = async (db, settings) => {
     return { syncedCount: 0, message: "No pending attendance logs." };
   }
 
-  const api = createApiClient(settings);
+  const api = createApiClient(activeSettings);
   const records = pendingLogs.map((log) => ({
     employee_id: log.employee_id,
     device_id: log.device_id,

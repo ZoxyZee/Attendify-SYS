@@ -3,6 +3,7 @@
     "name": "Attendify Kiosk",
     "slug": "attendify-kiosk",
     "version": "1.0.0",
+    "platforms": ["ios", "android", "web"],
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "plugins": [
@@ -12,7 +13,9 @@
           "cameraPermission": "Allow Attendify Kiosk to access the camera for employee face scanning."
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-asset",
+      "expo-font"
     ],
     "android": {
       "package": "com.attendify.kiosk"
