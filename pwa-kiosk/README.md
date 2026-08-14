@@ -10,6 +10,7 @@ This is a separate phone-friendly PWA kiosk for the existing Attendify dashboard
 - Listens to realtime attendance events from `GET /attendance/events`.
 - Uses IST display time.
 - Shows camera preview only; attendance marking does not wait on heavy face ML.
+- Uses browser face embeddings from `@vladmandic/face-api` for PWA face recognition.
 
 ## Folder Structure
 
@@ -50,6 +51,12 @@ For phone testing on the same Wi-Fi, open:
 
 ```text
 http://YOUR_COMPUTER_LAN_IP:5178
+```
+
+Mobile camera access normally requires HTTPS. For phone testing, prefer the tunnel script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File pwa-kiosk\start-tunnels.ps1
 ```
 
 The PWA automatically talks to:
