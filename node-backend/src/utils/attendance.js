@@ -2,6 +2,7 @@ import { getDb } from "../db.js";
 import { istDayRange, toDate, nowUtc } from "./time.js";
 
 const DUPLICATE_WINDOW_MS = 60 * 1000;
+const MIN_PUNCH_GAP_MS = 60 * 1000;
 
 export const resolveAttendanceTypeForDay = async (companyId, employeeId, timestamp) => {
   const db = getDb();
@@ -52,6 +53,16 @@ export const isDuplicateAttendance = async (companyId, employeeId, timestamp, ty
 export const createAttendance = async ({ companyId, employeeId, deviceId, timestamp, source = "kiosk" }) => {
   const db = getDb();
   const cleanTimestamp = toDate(timestamp);
+  const lastRecord = await db.collection("attendance")
+    .find({ company_id: companyId, employee_id: employeeId })
+    .sort({ timestamp: -1 })
+    .limit(1)
+    .next();
+  if (lastRecord && Math.abs(cleanTimestamp.getTime() - lastRecord.timestamp.getTime()) < MIN_PUNCH_GAP_MS) {
+    const error = new Error("Attendance already marked recently. Wait a minute before marking again.");
+    error.status = 409;
+    throw error;
+  }
   const type = await resolveAttendanceTypeForDay(companyId, employeeId, cleanTimestamp);
   if (await isDuplicateAttendance(companyId, employeeId, cleanTimestamp, type, deviceId)) {
     const error = new Error("Duplicate attendance record detected.");

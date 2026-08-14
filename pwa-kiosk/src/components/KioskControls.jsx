@@ -1,23 +1,19 @@
-import { Camera, RefreshCw, WifiOff } from "lucide-react";
+import { Camera, RefreshCw, ScanFace, WifiOff } from "lucide-react";
 
 import { formatIstTime } from "../utils/time";
-import { EmployeePicker } from "./EmployeePicker";
 import { StatusMessage } from "./StatusMessage";
 
 export function KioskControls({
+  autoScanning,
   employees,
-  filteredEmployees,
   lastMark,
   loading,
   marking,
   online,
-  onMark,
-  onQueryChange,
+  onManualScan,
   onReloadEmployees,
-  onSelectEmployee,
-  query,
+  onToggleScanning,
   selectedEmployee,
-  selectedId,
   status
 }) {
   return (
@@ -39,17 +35,22 @@ export function KioskControls({
 
       <StatusMessage tone={status.tone}>{status.text}</StatusMessage>
 
-      <EmployeePicker
-        employees={filteredEmployees}
-        query={query}
-        selectedId={selectedId}
-        onQueryChange={onQueryChange}
-        onSelect={onSelectEmployee}
-      />
+      <div className="scanner-mode">
+        <ScanFace size={22} />
+        <div>
+          <strong>{autoScanning ? "Live face scanner active" : "Scanner paused"}</strong>
+          <span>Registered faces only. Unknown faces are ignored.</span>
+        </div>
+      </div>
 
-      <button className="mark-button" type="button" onClick={onMark} disabled={marking || loading || !selectedId}>
+      <button className="mark-button" type="button" onClick={onManualScan} disabled={marking || loading}>
         {marking ? <RefreshCw className="spin" size={24} /> : <Camera size={24} />}
-        {marking ? "Marking..." : "Mark Attendance"}
+        {marking ? "Scanning..." : "Scan Face Now"}
+      </button>
+
+      <button className="ghost-button" type="button" onClick={onToggleScanning} disabled={loading}>
+        <ScanFace size={18} />
+        {autoScanning ? "Pause live scan" : "Start live scan"}
       </button>
 
       {lastMark && (

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { LoginScreen } from "./components/LoginScreen";
@@ -10,21 +10,23 @@ import { useServiceWorker } from "./hooks/useServiceWorker";
 import { KioskScreen } from "./screens/KioskScreen";
 import { fetchEmployees, markWebAttendance } from "./services/apiClient";
 import { getDeviceId } from "./utils/device";
+import { recognizeFromFrame } from "./utils/faceMatch";
 import { formatIstTime } from "./utils/time";
 
 import "./styles.css";
 
 function App() {
   const { token, user, login, logout } = useAuthSession();
-  const { videoRef, cameraState } = useCameraPreview(Boolean(token));
+  const { videoRef, cameraState, cameraReady, captureFrame } = useCameraPreview(Boolean(token));
   const online = useOnlineStatus();
   const deviceId = useMemo(getDeviceId, []);
+  const cooldownRef = useRef(new Map());
+  const scanningRef = useRef(false);
   const [employees, setEmployees] = useState([]);
-  const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState("");
   const [status, setStatus] = useState({ tone: "info", text: "Ready to connect." });
   const [loading, setLoading] = useState(false);
   const [marking, setMarking] = useState(false);
+  const [autoScanning, setAutoScanning] = useState(true);
   const [lastMark, setLastMark] = useState(null);
 
   useServiceWorker();
@@ -39,8 +41,8 @@ function App() {
       const response = await fetchEmployees(token);
       const list = response.data || [];
       setEmployees(list);
-      setSelectedId((current) => current || list[0]?.employee_id || "");
-      setStatus({ tone: "success", text: `${list.length} employees synced from dashboard backend.` });
+      const enrolled = list.filter((employee) => employee.face_image_base64).length;
+      setStatus({ tone: "success", text: `${enrolled}/${list.length} registered faces synced.` });
     } catch (error) {
       setStatus({ tone: "danger", text: error.message });
     } finally {
@@ -61,25 +63,35 @@ function App() {
     }
   };
 
-  const markAttendance = async () => {
-    if (!selectedId) {
-      setStatus({ tone: "danger", text: "Select an employee first." });
+  const markAttendanceForEmployee = useCallback(async (employee) => {
+    if (!employee?.employee_id) {
+      setStatus({ tone: "danger", text: "No employee matched." });
+      return;
+    }
+
+    const now = Date.now();
+    const cooldownUntil = cooldownRef.current.get(employee.employee_id) || 0;
+    if (now < cooldownUntil) {
+      const waitSeconds = Math.ceil((cooldownUntil - now) / 1000);
+      setStatus({ tone: "warning", text: `${employee.employee_name || employee.employee_id} already marked. Wait ${waitSeconds}s.` });
       return;
     }
 
     setMarking(true);
     const started = performance.now();
-    setStatus({ tone: "info", text: "Marking attendance..." });
+    setStatus({ tone: "info", text: `Matched ${employee.employee_name || employee.employee_id}. Marking attendance...` });
 
     try {
       const response = await markWebAttendance(token, {
-        employee_id: selectedId,
+        employee_id: employee.employee_id,
         device_id: deviceId,
         timestamp: new Date().toISOString()
       });
       const elapsed = Math.round(performance.now() - started);
+      cooldownRef.current.set(employee.employee_id, Date.now() + 90000);
       setLastMark({
-        employeeId: selectedId,
+        employeeId: employee.employee_id,
+        employeeName: employee.employee_name,
         type: response.data?.type || "recorded",
         time: formatIstTime(),
         elapsed
@@ -90,7 +102,24 @@ function App() {
     } finally {
       setMarking(false);
     }
-  };
+  }, [deviceId, token]);
+
+  const scanFrameAndMark = useCallback(async () => {
+    if (!cameraReady || marking || loading || scanningRef.current) {
+      return;
+    }
+
+    scanningRef.current = true;
+    try {
+      const frame = captureFrame();
+      const match = await recognizeFromFrame({ frame, employees });
+      await markAttendanceForEmployee(match);
+    } catch (error) {
+      setStatus({ tone: "warning", text: error.message });
+    } finally {
+      scanningRef.current = false;
+    }
+  }, [cameraReady, captureFrame, employees, loading, marking, markAttendanceForEmployee]);
 
   const onRealtimeUpdate = useCallback((data) => {
     setStatus({
@@ -109,20 +138,18 @@ function App() {
     loadEmployees();
   }, [loadEmployees]);
 
-  const filteredEmployees = employees.filter((employee) => {
-    const term = query.trim().toLowerCase();
-    if (!term) {
-      return true;
+  useEffect(() => {
+    if (!token || !autoScanning) {
+      return undefined;
     }
 
-    return (
-      employee.employee_id?.toLowerCase().includes(term) ||
-      employee.name?.toLowerCase().includes(term) ||
-      employee.department?.toLowerCase().includes(term)
-    );
-  });
+    const interval = setInterval(scanFrameAndMark, 1500);
+    return () => clearInterval(interval);
+  }, [autoScanning, scanFrameAndMark, token]);
 
-  const selectedEmployee = employees.find((employee) => employee.employee_id === selectedId);
+  const selectedEmployee = lastMark
+    ? employees.find((employee) => employee.employee_id === lastMark.employeeId)
+    : null;
 
   if (!token) {
     return <LoginScreen loading={loading} onLogin={submitLogin} status={status} />;
@@ -130,24 +157,21 @@ function App() {
 
   return (
     <KioskScreen
+      autoScanning={autoScanning}
       cameraState={cameraState}
       employees={employees}
-      filteredEmployees={filteredEmployees}
       lastMark={lastMark}
       loading={loading}
       marking={marking}
       online={online}
-      query={query}
       selectedEmployee={selectedEmployee}
-      selectedId={selectedId}
       status={status}
       title={user?.company_name || "Front Desk"}
       videoRef={videoRef}
       onLogout={logout}
-      onMark={markAttendance}
-      onQueryChange={setQuery}
+      onManualScan={scanFrameAndMark}
       onReloadEmployees={loadEmployees}
-      onSelectEmployee={setSelectedId}
+      onToggleScanning={() => setAutoScanning((current) => !current)}
     />
   );
 }

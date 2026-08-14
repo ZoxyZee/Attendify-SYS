@@ -1,4 +1,4 @@
-const CACHE_NAME = "attendify-pwa-kiosk-v1";
+const CACHE_NAME = "attendify-pwa-kiosk-v2";
 const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (event) => {
